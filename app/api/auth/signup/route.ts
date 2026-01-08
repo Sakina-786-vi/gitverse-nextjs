@@ -29,6 +29,19 @@ export async function POST(request: NextRequest) {
     });
 
     if (existingUser) {
+      const isGoogleOnly =
+        !existingUser.passwordHash &&
+        (await prisma.account.count({
+          where: { userId: existingUser.id, provider: "google" },
+        })) > 0;
+
+      if (isGoogleOnly) {
+        return NextResponse.json(
+          { error: "Email already exists. Please sign in with Google." },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         { error: "User with this email already exists" },
         { status: 409 }

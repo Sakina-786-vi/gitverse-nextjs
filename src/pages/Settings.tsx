@@ -34,6 +34,10 @@ export default function Settings() {
   const [email, setEmail] = useState(user?.email || "");
   const [avatar, setAvatar] = useState(user?.avatar || "");
 
+  const initialEmailRef = useRef<string>(user?.email || "");
+  const [isGoogleLinked, setIsGoogleLinked] = useState<boolean | null>(null);
+  const [emailChangeNewPassword, setEmailChangeNewPassword] = useState("");
+
   // When using Google login, `user` arrives async from NextAuth session.
   // Initialize the form once when the user becomes available.
   useEffect(() => {
@@ -41,7 +45,28 @@ export default function Settings() {
     setName(user.name || "");
     setEmail(user.email || "");
     setAvatar(user.avatar || "");
+    initialEmailRef.current = user.email || "";
     didInitProfileForm.current = true;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchLinkStatus = async () => {
+      try {
+        const token = localStorage.getItem("gitverse_token");
+        const res = await axios.get(buildApiUrl("/api/users/me"), {
+          withCredentials: true,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        setIsGoogleLinked(!!res.data?.isGoogleLinked);
+      } catch {
+        // Non-fatal; hide the indicator if we can't fetch.
+        setIsGoogleLinked(null);
+      }
+    };
+
+    fetchLinkStatus();
   }, [user]);
 
   // Password state
@@ -53,13 +78,73 @@ export default function Settings() {
     e.preventDefault();
     setIsLoading(true);
     try {
+      const trimmedName = name.trim();
+      const trimmedEmail = email.trim();
+
+      if (!trimmedName) {
+        toast({
+          title: "Error",
+          description: "Name is required",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!trimmedEmail) {
+        toast({
+          title: "Error",
+          description: "Email is required",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Basic email format validation (prevents incomplete/wrong format).
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        toast({
+          title: "Error",
+          description: "Please enter a valid email address",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const isEmailChanging =
+        !!initialEmailRef.current &&
+        trimmedEmail.toLowerCase() !== initialEmailRef.current.toLowerCase();
+
+      if (isEmailChanging && isGoogleLinked) {
+        if (!emailChangeNewPassword) {
+          toast({
+            title: "New password required",
+            description:
+              "Changing your email will unlink Google. Set a new password to continue.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        if (emailChangeNewPassword.length < 8) {
+          toast({
+            title: "Error",
+            description: "Password must be at least 8 characters",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
       const token = localStorage.getItem("gitverse_token");
       const response = await axios.put(
         buildApiUrl("/api/users/profile"),
         {
-          name,
-          email,
+          name: trimmedName,
+          email: trimmedEmail,
           avatar,
+          ...(isEmailChanging && isGoogleLinked
+            ? { newPassword: emailChangeNewPassword }
+            : {}),
         },
         {
           // If user is logged in via NextAuth (Google), rely on cookies.
@@ -70,16 +155,21 @@ export default function Settings() {
       );
 
       if (response.status === 200) {
+        initialEmailRef.current = trimmedEmail;
+        setEmailChangeNewPassword("");
         toast({
           title: "Profile Updated",
           description: "Your profile has been successfully updated",
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating profile:", error);
       toast({
         title: "Error",
-        description: "Failed to update profile",
+        description:
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          "Failed to update profile",
         variant: "destructive",
       });
     } finally {
@@ -89,15 +179,6 @@ export default function Settings() {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!currentPassword) {
-      toast({
-        title: "Error",
-        description: "Please enter your current password",
-        variant: "destructive",
-      });
-      return;
-    }
 
     if (newPassword !== confirmPassword) {
       toast({
@@ -127,7 +208,8 @@ export default function Settings() {
           newPassword,
         },
         {
-          headers: { Authorization: `Bearer ${token}` },
+          withCredentials: true,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         }
       );
 
@@ -206,7 +288,8 @@ export default function Settings() {
     try {
       const token = localStorage.getItem("gitverse_token");
       await axios.delete(buildApiUrl("/api/users/me"), {
-        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 
       await logout();
@@ -311,8 +394,41 @@ export default function Settings() {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="john@example.com"
+                        required
                       />
+                      {isGoogleLinked !== null && (
+                        <p className="text-xs text-muted-foreground">
+                          Google account linked: {isGoogleLinked ? "Yes" : "No"}
+                        </p>
+                      )}
                     </div>
+
+                    {isGoogleLinked &&
+                      !!initialEmailRef.current &&
+                      email.trim().toLowerCase() !==
+                        initialEmailRef.current.toLowerCase() && (
+                        <div className="space-y-2">
+                          <label
+                            htmlFor="email-change-password"
+                            className="text-sm font-medium"
+                          >
+                            New Password (required to change email)
+                          </label>
+                          <Input
+                            id="email-change-password"
+                            type="password"
+                            value={emailChangeNewPassword}
+                            onChange={(e) =>
+                              setEmailChangeNewPassword(e.target.value)
+                            }
+                            placeholder="••••••••"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Changing email will unlink Google and require a new
+                            password.
+                          </p>
+                        </div>
+                      )}
 
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Avatar</label>

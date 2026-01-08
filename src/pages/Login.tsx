@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Mail, Lock, GitBranch, Loader2 } from "lucide-react";
@@ -28,6 +28,31 @@ export default function Login() {
 
   const from = searchParams?.get("from") || "/dashboard";
 
+  useEffect(() => {
+    const error = searchParams?.get("error");
+    if (!error) return;
+
+    const messageByCode: Record<string, string> = {
+      OAuthSignin:
+        "Google sign-in could not be started. This is usually caused by a temporary cookie/CSRF issue or a local OAuth configuration problem. Try again, or clear site cookies for localhost.",
+      OAuthAccountNotLinked:
+        "This email is already registered. Please sign in using the same method you used originally.",
+      OAuthCallback:
+        "Google sign-in failed during the callback. This is usually a cookie/state issue, a DB error, or token verification failure. Try again; if it keeps happening, clear cookies for localhost and ensure NEXTAUTH_SECRET is a real 32-byte secret (not a placeholder), then restart the dev server.",
+      Callback: "Sign-in failed. Please try again.",
+      AccessDenied: "Access denied. Please try again.",
+      Configuration: "Authentication is misconfigured. Please contact support.",
+      Verification: "Verification failed. Please try again.",
+      Default: "Authentication failed. Please try again.",
+    };
+
+    toast({
+      title: "Authentication Failed",
+      description: messageByCode[error] || messageByCode.Default,
+      variant: "destructive",
+    });
+  }, [searchParams]);
+
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     try {
@@ -37,10 +62,26 @@ export default function Login() {
         redirect: false,
       });
 
-      if (result?.error) {
+      // NextAuth may return a URL that is actually the error page (e.g. /login?error=OAuthSignin).
+      // Treat that as an error and avoid navigating away.
+      const errorFromUrl = (() => {
+        try {
+          if (!result?.url) return null;
+          const asUrl = new URL(result.url, window.location.origin);
+          return asUrl.searchParams.get("error");
+        } catch {
+          return null;
+        }
+      })();
+
+      if (result?.error || errorFromUrl) {
+        const code = result?.error || errorFromUrl || "Default";
         toast({
           title: "Authentication Failed",
-          description: result.error,
+          description:
+            code === "OAuthSignin"
+              ? "Google sign-in could not be started. Try again, or clear site cookies for localhost."
+              : code,
           variant: "destructive",
         });
       } else if (result?.url) {

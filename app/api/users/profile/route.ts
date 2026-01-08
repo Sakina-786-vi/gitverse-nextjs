@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth } from "@/lib/middleware";
+import bcrypt from "bcryptjs";
 
 export async function PUT(request: NextRequest) {
   try {
     const user = await requireAuth(request);
     const body = await request.json();
-    const { name, email, avatar } = body;
+    const { name, email, avatar, newPassword } = body;
 
     if (!name || !email) {
       return NextResponse.json(
@@ -29,7 +30,50 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const current = await prisma.user.findUnique({
+      where: { id: user.userId },
+      select: {
+        email: true,
+        accounts: { select: { provider: true }, where: { provider: "google" } },
+      },
+    });
+
+    const isEmailChanging =
+      !!current?.email &&
+      typeof email === "string" &&
+      email.toLowerCase() !== current.email.toLowerCase();
+
+    const hasLinkedGoogle = (current?.accounts?.length ?? 0) > 0;
+
+    if (isEmailChanging && hasLinkedGoogle) {
+      if (!newPassword || typeof newPassword !== "string") {
+        return NextResponse.json(
+          {
+            message:
+              "Changing email will unlink your Google account. Please provide newPassword to set a new password.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (newPassword.length < 8) {
+        return NextResponse.json(
+          { message: "Password must be at least 8 characters" },
+          { status: 400 }
+        );
+      }
+
+      // Unlink Google account (prevents Google sign-in for this user unless re-linked).
+      await prisma.account.deleteMany({
+        where: { userId: user.userId, provider: "google" },
+      });
+    }
+
     const updateData: any = { name, email };
+
+    if (isEmailChanging && hasLinkedGoogle) {
+      updateData.passwordHash = await bcrypt.hash(newPassword, 10);
+    }
 
     if (avatar && (avatar.startsWith("data:") || avatar.startsWith("http"))) {
       updateData.image = avatar;

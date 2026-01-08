@@ -28,6 +28,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Security: never allow password login for Google-only accounts.
+    // A "Google-only" account is a user without a local password, but with a linked Google OAuth account.
+    if (!user.passwordHash) {
+      const hasGoogleAccount =
+        (await prisma.account.count({
+          where: { userId: user.id, provider: "google" },
+        })) > 0;
+
+      if (hasGoogleAccount) {
+        return NextResponse.json(
+          { error: "Email already exists. Please sign in with Google." },
+          { status: 401 }
+        );
+      }
+    }
+
     // Verify password
     const passwordHash = user.passwordHash || (user as any).password;
     if (!passwordHash) {

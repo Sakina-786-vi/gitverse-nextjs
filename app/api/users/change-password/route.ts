@@ -9,9 +9,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { currentPassword, newPassword } = body;
 
-    if (!currentPassword || !newPassword) {
+    if (!newPassword) {
       return NextResponse.json(
-        { message: "Current and new passwords are required" },
+        { message: "New password is required" },
         { status: 400 }
       );
     }
@@ -33,20 +33,25 @@ export async function POST(request: NextRequest) {
 
     const passwordHash =
       userDetails.passwordHash || (userDetails as any).password;
-    if (!passwordHash) {
-      return NextResponse.json(
-        { message: "Password verification failed" },
-        { status: 401 }
-      );
-    }
+    if (passwordHash) {
+      if (!currentPassword) {
+        return NextResponse.json(
+          { message: "Current password is required" },
+          { status: 400 }
+        );
+      }
 
-    const isPasswordValid = await bcrypt.compare(currentPassword, passwordHash);
-
-    if (!isPasswordValid) {
-      return NextResponse.json(
-        { message: "Current password is incorrect" },
-        { status: 401 }
+      const isPasswordValid = await bcrypt.compare(
+        currentPassword,
+        passwordHash
       );
+
+      if (!isPasswordValid) {
+        return NextResponse.json(
+          { message: "Current password is incorrect" },
+          { status: 401 }
+        );
+      }
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);

@@ -4,6 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import dns from "dns";
+import { OAuth2Client } from "google-auth-library";
 import type {
   Adapter,
   AdapterAccount,
@@ -208,6 +209,53 @@ const isGoogleConfigured =
   !looksLikePlaceholder(googleClientId) &&
   !looksLikePlaceholder(googleClientSecret);
 
+const googleTokenVerifier = isGoogleConfigured
+  ? new OAuth2Client({ clientId: googleClientId! })
+  : null;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientNetworkError(error: unknown) {
+  const anyErr = error as any;
+  const code = anyErr?.code as string | undefined;
+  const message = (anyErr?.message as string | undefined) || "";
+
+  return (
+    code === "ETIMEDOUT" ||
+    code === "ECONNRESET" ||
+    code === "EAI_AGAIN" ||
+    code === "ENOTFOUND" ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("ECONNRESET")
+  );
+}
+
+async function verifyGoogleIdToken(idToken: string) {
+  if (!googleTokenVerifier || !googleClientId) {
+    throw new Error("Google OAuth is not configured");
+  }
+
+  // Retry once for intermittent network/cert-fetch issues.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await googleTokenVerifier.verifyIdToken({
+        idToken,
+        audience: googleClientId,
+      });
+    } catch (err) {
+      if (attempt === 0 && isTransientNetworkError(err)) {
+        await sleep(200);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error("Google token verification failed");
+}
+
 if ((googleClientId || googleClientSecret) && !isGoogleConfigured) {
   // Intentionally do not log secrets.
   console.warn(
@@ -275,7 +323,24 @@ export const authOptions: NextAuthOptions = {
           where: { email: credentials.email },
         });
 
-        if (!user || !user.passwordHash) {
+        if (!user) {
+          throw new Error("Invalid email or password");
+        }
+
+        // Security: never allow password login for Google-only accounts.
+        // A "Google-only" account has no local passwordHash, but does have a linked Google provider account.
+        if (!user.passwordHash) {
+          const hasGoogleAccount =
+            (await prisma.account.count({
+              where: { userId: user.id, provider: "google" },
+            })) > 0;
+
+          if (hasGoogleAccount) {
+            throw new Error(
+              "Email already exists. Please sign in with Google."
+            );
+          }
+
           throw new Error("Invalid email or password");
         }
 
@@ -369,19 +434,60 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account, profile }) {
       // If signing in with OAuth and user exists, allow linking
       if (account?.provider === "google") {
-        const existingUser = await prisma.user.findUnique({
-          where: { email: user.email! },
-        });
-
-        if (existingUser) {
-          // Update avatar if from Google
-          const googleProfile = profile as { picture?: string } | undefined;
-          if (googleProfile?.picture && !(existingUser as any).image) {
-            await prisma.user.update({
-              where: { id: existingUser.id },
-              data: { image: googleProfile.picture },
-            });
+        try {
+          // Security: always verify Google ID token server-side.
+          // NextAuth handles the OAuth code exchange, but we still validate the returned id_token.
+          const idToken = (account as any).id_token as string | undefined;
+          if (!idToken) {
+            throw new Error("Missing Google id_token");
           }
+
+          const ticket = await verifyGoogleIdToken(idToken);
+
+          const payload = ticket.getPayload();
+          const googleEmail = payload?.email;
+          const googleSub = payload?.sub;
+
+          if (!googleEmail || !user.email) {
+            throw new Error("Google token missing email");
+          }
+
+          if (googleEmail.toLowerCase() !== user.email.toLowerCase()) {
+            throw new Error("Google token email mismatch");
+          }
+
+          // providerAccountId should be the Google subject. If it exists and doesn't match, reject.
+          if (
+            googleSub &&
+            account.providerAccountId &&
+            String(account.providerAccountId) !== String(googleSub)
+          ) {
+            throw new Error("Google token subject mismatch");
+          }
+
+          const existingUser = await prisma.user.findUnique({
+            where: { email: user.email! },
+          });
+
+          if (existingUser) {
+            // Update avatar if from Google
+            const googleProfile = profile as { picture?: string } | undefined;
+            if (googleProfile?.picture && !(existingUser as any).image) {
+              await prisma.user.update({
+                where: { id: existingUser.id },
+                data: { image: googleProfile.picture },
+              });
+            }
+          }
+        } catch (err: any) {
+          // Avoid logging secrets/tokens. Provide enough context to diagnose.
+          console.error("[auth] google oauth callback failed", {
+            message: err?.message,
+            code: err?.code,
+            providerAccountId: account?.providerAccountId,
+            hasUserEmail: !!user?.email,
+          });
+          throw err;
         }
       }
       return true;
