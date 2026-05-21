@@ -131,6 +131,7 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@index([userId])
   @@map("accounts")
 }
 
@@ -141,6 +142,7 @@ model Session {
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("sessions")
 }
 
@@ -179,6 +181,7 @@ model Repository {
   languages      Language[]
   analysisJobs   AnalysisJob[]
 
+  @@index([userId])
   @@map("repositories")
 }
 
