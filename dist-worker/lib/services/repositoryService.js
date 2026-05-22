@@ -183,10 +183,7 @@ class RepositoryService {
             gitService = await gitService_1.GitService.cloneRepository(repository.url, tempDir);
             // Capture README / size / branches in parallel; these are independent once cloned.
             await report({ progressPercent: 8, progressMessage: "Reading README" });
-            const readmePromise = this.tryReadmeFromRepoPath(tempDir);
-            const sizePromise = gitService.getRepositorySize();
-            const branchesPromise = gitService.getBranches();
-            const readme = await readmePromise;
+            const readme = await this.tryReadmeFromRepoPath(tempDir);
             await prisma_1.default.repository.update({
                 where: { id: repositoryId },
                 data: {
