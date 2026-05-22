@@ -4,8 +4,23 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
 
+import { parseJsonBody, validateEmail, validatePassword } from "@/lib/validateAuth";
+import { badRequestResponse } from "@/lib/middleware";
+
 export async function POST(request: NextRequest) {
   try {
+    const parsed = await parseJsonBody(request);
+    if ("error" in parsed) return badRequestResponse(parsed.error);
+    const { body } = parsed;
+
+    const emailCheck = validateEmail(body.email);
+    if (!emailCheck.valid) return badRequestResponse(emailCheck.error!);
+
+    const passwordCheck = validatePassword(body.password);
+    if (!passwordCheck.valid) return badRequestResponse(passwordCheck.error!);
+
+    const email = body.email as string;
+    const password = body.password as string;
 // 1. EXTRACT IP AND CHECK RATE LIMIT FIRST
     const forwardedFor = request.headers.get('x-forwarded-for');
     const ip = forwardedFor?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown-ip';
@@ -91,6 +106,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Login error:", error);
+    return NextResponse.json(
+      { error: "An unexpected error occurred" },
+      { status: 500 }
+    );
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
