@@ -1,4 +1,4 @@
-import { normalizeKnownRepoHttpUrl } from "@/lib/utils/repositoryUtils";import { NextRequest, NextResponse } from "next/server";
+import { normalizeKnownRepoHttpUrl, normalizeTargetDirectory } from "@/lib/utils/repositoryUtils";import { NextRequest, NextResponse } from "next/server";
 import { isHttpError, requireAuth , sanitizeError } from "@/lib/middleware";
 import { repositoryService } from "@/lib/services/repositoryService";
 import { analysisJobService } from "@/lib/services/analysisJobService";
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth(request);
     const body = await request.json();
-    const { name, url, description } = body;
+    const { name, url, description, targetDirectory } = body;
 
     if (!name || !url) {
       return NextResponse.json(
@@ -48,10 +48,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedTargetDirectory = normalizeTargetDirectory(targetDirectory);
+    if (targetDirectory && !normalizedTargetDirectory) {
+      return NextResponse.json(
+        { error: "Invalid targetDirectory. Example: packages/ui or apps/web" },
+        { status: 400 }
+      );
+    }
+
     const repository = await repositoryService.createRepository({
       name,
       url: normalizedUrl,
       description,
+      targetDirectory: normalizedTargetDirectory ?? undefined,
       userId: user.userId,
     });
 

@@ -19,6 +19,7 @@ export interface AnalyzeRepositoryInput {
   name: string;
   url: string;
   description?: string;
+  targetDirectory?: string;
   userId: number;
 }
 
@@ -81,7 +82,7 @@ export class RepositoryService {
   async fetchAndStoreReadme(repositoryId: number, userId: number) {
     const repository = await prisma.repository.findFirst({
       where: { id: repositoryId, userId },
-      select: { id: true, url: true },
+      select: { id: true, url: true, targetDirectory: true },
     });
 
     if (!repository) {
@@ -103,7 +104,14 @@ export class RepositoryService {
         noSingleBranch: false,
       });
 
-      const readme = await this.tryReadmeFromRepoPath(tempDir);
+      const scopedPath = repository.targetDirectory
+        ? path.join(tempDir, repository.targetDirectory)
+        : null;
+
+      const readme =
+        (scopedPath
+          ? await this.tryReadmeFromRepoPath(scopedPath)
+          : null) ?? (await this.tryReadmeFromRepoPath(tempDir));
 
       const updated = await prisma.repository.update({
         where: { id: repositoryId },
@@ -135,6 +143,7 @@ export class RepositoryService {
       where: {
         url: input.url,
         userId: input.userId,
+        targetDirectory: input.targetDirectory ?? null,
       },
     });
 
@@ -148,6 +157,7 @@ export class RepositoryService {
         name: input.name,
         url: input.url,
         description: input.description,
+        targetDirectory: input.targetDirectory ?? null,
         userId: input.userId,
         status: "pending",
       },
@@ -233,7 +243,13 @@ export class RepositoryService {
 
       // Capture README first, then size + branches in parallel.
       await report({ progressPercent: 8, progressMessage: "Reading README" });
-      const readme = await this.tryReadmeFromRepoPath(tempDir);
+      const scopedReadmePath = repository.targetDirectory
+        ? path.join(tempDir, repository.targetDirectory)
+        : null;
+      const readme =
+        (scopedReadmePath
+          ? await this.tryReadmeFromRepoPath(scopedReadmePath)
+          : null) ?? (await this.tryReadmeFromRepoPath(tempDir));
       await prisma.repository.update({
         where: { id: repositoryId },
         data: {
@@ -409,7 +425,9 @@ export class RepositoryService {
 
       // Analyze files
       await report({ progressPercent: 65, progressMessage: "Scanning files" });
-      const files = await gitService.getFileTree();
+      const files = await gitService.getFileTree({
+        targetDirectory: repository.targetDirectory ?? null,
+      });
 
       checkAborted();
 
@@ -458,7 +476,9 @@ export class RepositoryService {
 
       const [contributors, languages] = await Promise.all([
         gitService.getContributors(),
-        gitService.detectLanguages(),
+        gitService.detectLanguages({
+          targetDirectory: repository.targetDirectory ?? null,
+        }),
       ]);
 
       checkAborted();
