@@ -23,6 +23,8 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui";
+import { RecentReposList } from "@/components/RecentReposList";
+import { useRecentRepos } from "@/hooks/useRecentRepos";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -30,6 +32,8 @@ export default function LandingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [scoreAnimate, setScoreAnimate] = useState(false);
   const isAnalyzeDisabled = !repoUrl.trim() || isLoading;
+  
+  const { addRepo } = useRecentRepos();
 
   const mentorMessages = useMemo(
     () => [
@@ -129,6 +133,20 @@ export default function LandingPage() {
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!repoUrl.trim() || isLoading) return;
+
+    // Extract repository owner and name from the URL
+    const cleanUrl = repoUrl.trim().replace(/\/$/, "").replace(/\.git$/, "");
+    const urlParts = cleanUrl.split("/");
+    const name = urlParts[urlParts.length - 1] || "";
+    const owner = urlParts[urlParts.length - 2] || "";
+
+    if (name && owner) {
+      addRepo({
+        owner,
+        name,
+        url: repoUrl.trim(),
+      });
+    }
 
     // Demo-only CTA: keep it as UI (no navigation / no analysis).
     setIsLoading(true);
@@ -409,6 +427,10 @@ export default function LandingPage() {
                 Demo UI only — real analysis happens after install/sign up.
               </p>
             </form>
+
+            {/* Recent Repositories */}
+            <RecentReposList />
+
 
             {/* Demos */}
             <div

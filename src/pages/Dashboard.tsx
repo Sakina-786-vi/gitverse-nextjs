@@ -3,7 +3,9 @@
 export const dynamic = "force-dynamic";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { RecentReposList } from "@/components/RecentReposList";
+import { useRecentRepos } from "@/hooks/useRecentRepos";
 import {
   GitBranch,
   TrendingUp,
@@ -48,14 +50,70 @@ interface Repository {
 export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const analyzeUrl = searchParams ? searchParams.get("analyzeUrl") : null;
   const [repoUrl, setRepoUrl] = useState("");
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
 
+  const { addRepo } = useRecentRepos();
+
   useEffect(() => {
     fetchRepositories();
   }, []);
+
+  // Trigger auto-analysis when analyzeUrl query parameter is provided
+  useEffect(() => {
+    if (analyzeUrl) {
+      setRepoUrl(analyzeUrl);
+      
+      const triggerAutoAnalyze = async () => {
+        setAnalyzing(true);
+        try {
+          const token = localStorage.getItem("gitverse_token");
+          const cleanUrl = analyzeUrl.trim().replace(/\/$/, "").replace(/\.git$/, "");
+          const urlParts = cleanUrl.split("/");
+          const name = urlParts[urlParts.length - 1] || "repository";
+          const owner = urlParts[urlParts.length - 2] || "unknown";
+
+          // Add to recent repositories locally
+          addRepo({
+            owner,
+            name,
+            url: analyzeUrl.trim(),
+          });
+
+          const response = await axios.post(
+            buildApiUrl("/api/repositories"),
+            {
+              name,
+              url: analyzeUrl.trim(),
+              description: `Repository from direct analysis: ${analyzeUrl}`,
+            },
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          );
+
+          await fetchRepositories();
+          router.push(`/repo/${response.data.repository.id}`);
+          setRepoUrl("");
+        } catch (error: any) {
+          console.error("Auto analysis failed:", error);
+          toast({
+            title: "Analysis Failed",
+            description: error.response?.data?.error || error.message || "Failed to analyze repository",
+            variant: "destructive",
+          });
+        } finally {
+          setAnalyzing(false);
+        }
+      };
+      
+      void triggerAutoAnalyze();
+    }
+  }, [analyzeUrl, router, addRepo]);
 
   const fetchRepositories = async () => {
     try {
@@ -146,16 +204,18 @@ export default function Dashboard() {
         }))
     : [];
 
-    const handleAnalyze = async () => {
+  const handleAnalyze = async () => {
     if (!repoUrl.trim()) return;
 
     setAnalyzing(true);
     try {
       const token = localStorage.getItem("gitverse_token");
 
-      // Extract repo name from URL
-      const urlParts = repoUrl.trim().split("/");
-      const repoName = urlParts[urlParts.length - 1];
+      // Extract owner and name for recent storage
+      const cleanUrl = repoUrl.trim().replace(/\/$/, "").replace(/\.git$/, "");
+      const cleanParts = cleanUrl.split("/");
+      const repoName = cleanParts[cleanParts.length - 1] || "";
+      const repoOwner = cleanParts[cleanParts.length - 2] || "unknown";
 
       const response = await axios.post(
         buildApiUrl("/api/repositories"),
@@ -168,6 +228,13 @@ export default function Dashboard() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
+
+      // Add to recent repositories locally
+      addRepo({
+        owner: repoOwner,
+        name: repoName,
+        url: repoUrl.trim(),
+      });
 
       // Check if this is an existing repository
       const isExisting = repositories.some(
@@ -187,6 +254,7 @@ export default function Dashboard() {
 
       setRepoUrl("");
     } catch (error: any) {
+
       console.error("Error creating repository:", error);
       const errMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Failed to analyze repository";
       toast({
@@ -235,6 +303,10 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Recent Repositories */}
+        <RecentReposList />
+
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
