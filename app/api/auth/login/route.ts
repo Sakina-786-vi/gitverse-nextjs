@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
-import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 
 const loginAttempts = new Map<string, { count: number; resetTime: number }>();
 
@@ -61,10 +61,7 @@ export async function POST(request: NextRequest) {
 
     // Validation
     if (!email || !password) {
-      return NextResponse.json(
-        { error: "Email and password are required" },
-        { status: 400 }
-      );
+      return apiError(400, "Email and password are required");
     }
 
     // Normalize email after validation
@@ -76,12 +73,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!user) {
-      recordFailedAttempt(ip);
-
-      return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
-      );
+      return apiError(401, "Invalid email or password");
     }
 
     // Prevent password login for Google-only accounts
@@ -95,39 +87,23 @@ export async function POST(request: NextRequest) {
         })) > 0;
 
       if (hasGoogleAccount) {
-        recordFailedAttempt(ip);
-
-        return NextResponse.json(
-          { error: "Email already exists. Please sign in with Google." },
-          { status: 401 }
-        );
+        return apiError(
+  401,
+  "Email already exists. Please sign in with Google."
+);
       }
     }
 
     const passwordHash = user.passwordHash;
 
     if (!passwordHash) {
-      recordFailedAttempt(ip);
-
-      return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
-      );
-    }
-
-    const isValidPassword = await bcrypt.compare(
-      password,
-      passwordHash
-    );
+  return apiError(401, "Invalid email or password");
+}
+    const isValidPassword = await bcrypt.compare(password, passwordHash);
 
     if (!isValidPassword) {
-      recordFailedAttempt(ip);
-
-      return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
-      );
-    }
+  return apiError(401, "Invalid email or password");
+}
 
     const token = generateToken({
       userId: user.id,
@@ -143,16 +119,8 @@ export async function POST(request: NextRequest) {
       },
       token,
     });
-
   } catch (error) {
-    logger.error(
-      { err: sanitizeError(error) },
-      "Login error"
-    );
-
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error("Login error:", error);
+   return apiError(500, "Internal server error");
   }
 }
