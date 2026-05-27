@@ -16,31 +16,24 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 function isAuthorized(request: NextRequest): boolean {
   const configuredSecret = process.env.ANALYSIS_RUNNER_SECRET;
 
-  // When no secret is configured, allow in dev or via Vercel Cron on Vercel.
   if (!configuredSecret) {
-    if (process.env.NODE_ENV !== "production") return true;
-
-    const ua = (request.headers.get("user-agent") || "").toLowerCase();
-    if (
-      request.method === "GET" &&
-      process.env.VERCEL === "1" &&
-      process.env.VERCEL_ENV === "production" &&
-      ua.includes("vercel-cron/")
-    ) {
-      return true;
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[run-analysis] ANALYSIS_RUNNER_SECRET is not set. " +
+          "All requests are rejected in production until the secret is configured."
+      );
+      return false;
     }
-
-    return false;
+    return true;
   }
 
-  // When a secret is configured, always require it, regardless of
-  // HTTP method or User-Agent. Vercel Cron jobs should include the
-  // secret as a query parameter in the cron path.
-  const headerSecret = request.headers.get("x-analysis-runner-secret");
-  const url = new URL(request.url);
-  const querySecret = url.searchParams.get("secret");
+  const authHeader = request.headers.get("authorization");
+  if (authHeader === `Bearer ${configuredSecret}`) return true;
 
-  return headerSecret === configuredSecret || querySecret === configuredSecret;
+  const headerSecret = request.headers.get("x-analysis-runner-secret");
+  if (headerSecret === configuredSecret) return true;
+
+  return false;
 }
 
 async function runOnce(request: NextRequest): Promise<NextResponse> {
@@ -73,7 +66,7 @@ async function runOnce(request: NextRequest): Promise<NextResponse> {
         .catch((e) => console.error("serverless heartbeat failed", e));
     }, HEARTBEAT_INTERVAL_MS);
 
-    await repositoryService.analyzeRepository(job.repositoryId, {
+    await repositoryService.analyzeRepository(job.repositoryId, job.userId, {
       onProgress: async (update) => {
         await analysisJobService.updateProgress({
           jobId: job.id,
