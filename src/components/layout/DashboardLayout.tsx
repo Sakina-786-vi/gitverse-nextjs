@@ -210,6 +210,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                         src={user.avatar}
                         alt={user.name}
                         className="rounded-full"
+                        loading="lazy"
                       />
                     ) : (
                       <User className="h-4 w-4 text-primary-foreground" />
