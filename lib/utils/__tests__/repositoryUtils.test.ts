@@ -31,6 +31,12 @@ describe('repositoryUtils', () => {
       expect(formatFileSize(1024)).toBe('1 KB');
       expect(formatFileSize(1024 * 1024 * 1.5)).toBe('1.5 MB');
     });
+
+    it('formats petabyte and larger values with valid units', () => {
+      expect(formatFileSize(1024 ** 5)).toBe('1 PB');
+      expect(formatFileSize(1024 ** 6)).toBe('1 EB');
+      expect(formatFileSize(1024 ** 7)).toBe('1024 EB');
+    });
   });
 
   describe('formatRelativeTime', () => {
