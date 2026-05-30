@@ -198,6 +198,7 @@ model Repository {
   analysisJobs        AnalysisJob[]
   geminiAnalysisCache GeminiAnalysisCache[]
   securitySandboxes   SecuritySandbox[]
+  reviewPolicies      ReviewPolicy[]
 
   @@index([url])
   @@index([userId])
@@ -472,4 +473,20 @@ model SecuritySandbox {
   @@index([repositoryId, headSha])
   @@index([status])
   @@map("security_sandboxes")
+}
+
+model ReviewPolicy {
+  id             Int      @id @default(autoincrement())
+  repositoryId   Int      @map("repository_id")
+  name           String
+  description    String?  @db.Text
+  rules          Json     // Array of { rule: string, severity: "critical"|"high"|"medium"|"low" }
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId])
+  @@map("review_policies")
 }
