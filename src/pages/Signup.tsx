@@ -24,6 +24,7 @@ import {
 } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { signIn } from "next-auth/react";
+import { PASSWORD_REGEX } from "@/lib/utils/validators";
 
 export default function Signup() {
   const router = useRouter();
@@ -173,9 +174,7 @@ export default function Signup() {
       return;
     }
 
-    const passwordRegex =
-          /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-    if (!passwordRegex.test(password)) {
+    if (!PASSWORD_REGEX.test(password)) {
       toast({
         title: "Error",
         description:

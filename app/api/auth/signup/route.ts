@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 import crypto from "crypto";
+import { PASSWORD_REGEX } from "@/lib/utils/validators";
 import {
   getClientIp,
   countAttempts,
@@ -39,10 +40,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const passwordRegex =
-          /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-
-    if (!passwordRegex.test(password)) {
+    if (!PASSWORD_REGEX.test(password)) {
       return NextResponse.json(
         {
           error:
