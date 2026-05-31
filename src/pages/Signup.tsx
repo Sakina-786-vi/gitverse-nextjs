@@ -318,7 +318,7 @@ export default function Signup() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Must be at least 8 characters
+                Must be at least 8 characters and include uppercase, lowercase, and a number
               </p>
             </div>
 
