@@ -21,8 +21,7 @@ import { PremergePolicyEngine } from "@/lib/services/premerge-policy-engine";
 import { CheckSummaryService } from "@/lib/services/check-summary";
 import { CheckRecoveryService } from "@/lib/services/check-recovery";
 import { webhookQueue } from "@/lib/services/webhook-queue";
-import { classifyRetry } from "@/lib/utils/retry";
-import { isInternalWorkerAuthorized } from "@/lib/utils/internalAuth";
+import { PRImpactAnalysisService } from "@/lib/services/prImpactAnalysisService";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes max duration for Vercel
@@ -327,6 +326,14 @@ async function handlePost(request: NextRequest) {
           pullNumber: number,
           githubToken: installationToken,
         });
+
+        await PRImpactAnalysisService.analyzePullRequest(
+          installationToken,
+          repoFullName,
+          number,
+          prRecord.id,
+          enabledRepo.id
+        );
       } catch (impactErr) {
         console.error("Dependency impact analysis failed:", impactErr);
       }
