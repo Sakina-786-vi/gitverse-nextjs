@@ -21,6 +21,7 @@ import { PremergePolicyEngine } from "@/lib/services/premerge-policy-engine";
 import { CheckSummaryService } from "@/lib/services/check-summary";
 import { CheckRecoveryService } from "@/lib/services/check-recovery";
 import { webhookQueue } from "@/lib/services/webhook-queue";
+import { classifyRetry } from "@/lib/utils/retry";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes max duration for Vercel
@@ -400,30 +401,19 @@ async function handlePost(request: NextRequest) {
       );
     }
 
-    const currentRetryCount = webhookEvent?.retryCount ?? 0;
-    const maxRetries = webhookEvent?.maxRetries ?? 3;
-
-    const errorMessage = String(error?.message || error).toLowerCase();
-    const isRetryable =
-      errorMessage.includes("timeout") ||
-      errorMessage.includes("network") ||
-      errorMessage.includes("rate limit") ||
-      errorMessage.includes("fetch failed") ||
-      errorMessage.includes("temporarily unavailable") ||
-      errorMessage.includes("econnreset") ||
-      errorMessage.includes("etimedout");
-
-    const shouldRetry = isRetryable && currentRetryCount < maxRetries;
-    // Exponential backoff: 10s, 20s, 40s, ... capped at 5 minutes
-    const retryDelay = Math.min(5 * 60_000, 10_000 * Math.pow(2, Math.max(0, currentRetryCount)));
+    const retryDecision = classifyRetry({
+      currentRetryCount: webhookEvent?.retryCount ?? 0,
+      maxRetries: webhookEvent?.maxRetries ?? 3,
+      error,
+    });
 
     await prisma.webhookEvent.update({
       where: { id: eventId },
       data: {
-        status: shouldRetry ? "pending" : "failed",
+        status: retryDecision.shouldRetry ? "pending" : "failed",
         error: String(error?.message || error),
-        retryCount: currentRetryCount + 1,
-        nextRetryAt: shouldRetry ? new Date(Date.now() + retryDelay) : null,
+        retryCount: retryDecision.retryCount,
+        nextRetryAt: retryDecision.nextRetryAt,
       },
     });
 
